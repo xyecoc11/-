@@ -226,7 +226,7 @@ export async function POST(req: NextRequest) {
         id: eventId,
         type: eventType,
         company_id: payload.company_id || payload.companyId || payload.company?.id || null,
-        payload: null, -- do not store full payload to avoid PII leaks
+        payload: null, /* redacted payload to avoid PII leaks */
         status: 'received',
       });
       if (insErr && String(insErr.message).includes('duplicate key')) {
