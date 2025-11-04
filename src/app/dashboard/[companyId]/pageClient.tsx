@@ -4,7 +4,7 @@ import { useIframeSdk } from "@whop/react";
 import { useEffect } from "react";
 import DefaultDashboard from "@/app/dashboard/page";
 
-export default function ClientDashboard({ companyId }: { companyId: string }) {
+export default function ClientDashboard({ companyId, embedded = true }: { companyId: string; embedded?: boolean }) {
   const sdk: any = useIframeSdk();
   const { state, company, user } = sdk || {};
 
@@ -24,7 +24,8 @@ export default function ClientDashboard({ companyId }: { companyId: string }) {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  if (state !== "ready") {
+  // Fallback: if not embedded (direct Vercel access), skip waiting on Whop SDK
+  if (embedded && state !== "ready") {
     return <p>Loading Whop context...</p>;
   }
 
@@ -32,7 +33,7 @@ export default function ClientDashboard({ companyId }: { companyId: string }) {
     <div style={{ padding: 20 }}>
       <div style={{ marginBottom: 12 }}>
         <p>Company: {company?.name || companyId || "unknown"}</p>
-        <p>User: {user?.email || user?.id || "anonymous"}</p>
+        <p>User: {user?.email || user?.id || (!embedded ? "dev/direct" : "anonymous")}</p>
       </div>
       <DefaultDashboard />
     </div>

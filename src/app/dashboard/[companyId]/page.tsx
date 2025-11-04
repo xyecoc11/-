@@ -29,6 +29,11 @@ export default async function DashboardPage({
   }
 
   const hdrsAny: any = await headers();
+  console.log("[Whop] Incoming headers snapshot", {
+    hasGet: typeof hdrsAny?.get === 'function',
+    whopTokenPresent: typeof hdrsAny?.get === 'function' ? !!hdrsAny.get('whop-token') : false,
+    authorizationPresent: typeof hdrsAny?.get === 'function' ? !!hdrsAny.get('authorization') : false,
+  });
   const getHeader = typeof hdrsAny?.get === 'function' ? (k: string) => hdrsAny.get(k) : (_k: string) => undefined;
   const host = (getHeader('host') || '').toLowerCase();
   const shouldVerify = host.endsWith('.apps.whop.com') || host.endsWith('.whop.com');
@@ -36,10 +41,17 @@ export default async function DashboardPage({
   let allow = true;
   if (shouldVerify) {
     try {
+      const token = getHeader('whop-token');
+      if (!token) {
+        console.log('⚠️ No Whop token found in headers');
+      }
       const { userId } = await whopsdk.verifyUserToken(hdrsAny);
+      console.log('✅ User verified', { userId });
       const hasAccess = await whopsdk.users.checkAccess(companyId, { id: userId });
       allow = !!hasAccess;
+      console.log('🔐 Access check', { companyId, allow });
     } catch (e) {
+      console.error('❌ Token verification failed', e);
       allow = false;
     }
   }
@@ -52,6 +64,6 @@ export default async function DashboardPage({
     );
   }
 
-  return <ClientDashboard companyId={companyId} />;
+  return <ClientDashboard companyId={companyId} embedded={shouldVerify} />;
 }
 
