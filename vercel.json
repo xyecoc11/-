@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "runtime": "vercel-nodejs@18.0.0"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/sync/whop",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

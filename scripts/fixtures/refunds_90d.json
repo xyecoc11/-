@@ -1,0 +1,14 @@
+[
+  {
+    "id": "ref_001",
+    "orderId": "ord_002",
+    "amountCents": 1000,
+    "createdAt": "2025-10-11T13:00:00.000Z"
+  },
+  {
+    "id": "ref_002",
+    "orderId": "ord_004",
+    "amountCents": 2000,
+    "createdAt": "2025-09-05T12:00:00.000Z"
+  }
+]

@@ -1,0 +1,307 @@
+@import "tailwindcss";
+
+:root {
+  /* Lava backgrounds */
+  --lava-0: #0a0503;
+  --lava-1: #120906;
+  --lava-2: #1c0e08;
+  --lava-3: #2b160d;
+
+  /* Amber core palette */
+  --amber-core: #ff7a00;
+  --amber-bright: #ff9100;
+  --amber-glow: #ffb347;
+  --amber-light: #ffd59b;
+
+  /* Lava red-orange energy */
+  --lava-red: #ff3b1f;
+  --lava-deep: #b71f0e;
+  --lava-pink: #ff5c40;
+
+  /* Accent colors */
+  --lime-glow: #40ff9f;
+
+  /* Text */
+  --text-main: #ffeede;
+  --text-dim: #c9b7a6;
+
+  /* Borders */
+  --border-soft: #2e1a0e;
+
+  /* Glows */
+  --btn-hover-glow: 0 0 14px rgba(255,120,0,.45);
+  --lava-glow: 0 0 26px rgba(255,110,0,.25);
+
+  /* Legacy compatibility */
+  --bg-0: var(--lava-0);
+  --bg-1: var(--lava-1);
+  --bg-2: var(--lava-2);
+  --bg-3: var(--lava-3);
+  --border: var(--border-soft);
+  --amber-500: var(--amber-core);
+  --amber-400: var(--amber-bright);
+  --amber-300: var(--amber-glow);
+  --amber-200: var(--amber-light);
+  --success-500: var(--lime-glow);
+  --danger-500: var(--lava-red);
+  --warning-500: #ffb347;
+  --muted-500: var(--text-dim);
+  --text-0: var(--text-main);
+  --text-1: var(--text-dim);
+  --text-2: #9b8573;
+  --glow-amber: var(--lava-glow);
+  --glow-green: 0 0 18px rgba(64,255,159,.45);
+  --glow-red: 0 0 18px rgba(255,59,31,.45);
+
+  --background: var(--lava-0);
+  --foreground: var(--text-main);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  /* Neon accent colors */
+  --color-neon-cyan: #00FFFF;
+  --color-neon-violet: #9D4EDD;
+  --color-neon-magenta: #FF00FF;
+  /* Custom glow colors for futuristic theme */
+  --color-cyan-glow: rgba(0, 255, 255, 0.08);
+  --color-violet-glow: rgba(157, 78, 221, 0.08);
+  --color-magenta-glow: rgba(255, 0, 255, 0.08);
+}
+
+/* Animated gradient background */
+@keyframes gradientFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes dash {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 10; }
+}
+
+@keyframes flow {
+  0% {
+    stroke-dasharray: 0 1000;
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dasharray: 1000 0;
+    opacity: 0.8;
+  }
+}
+
+.gradient-bg {
+  background: radial-gradient(ellipse at top, #0a0f1f, #050814);
+  background-size: 400% 400%;
+  animation: gradientFlow 40s ease infinite;
+}
+
+/* Shimmer animation */
+.shimmer-bg {
+  background: linear-gradient(110deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.05) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Glow utilities */
+.card-glow {
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.05);
+  transition: box-shadow 0.3s ease-in-out;
+}
+
+.card-glow:hover {
+  box-shadow: 0 0 25px rgba(0, 255, 255, 0.1);
+}
+
+/* Neon colors */
+.neon-cyan { color: #00FFFF; }
+.neon-purple { color: #9D4EDD; }
+.neon-pink { color: #FF00FF; }
+
+/* Pulse dot for system health */
+.pulse-dot {
+  position: relative;
+}
+
+.pulse-dot::before {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lime-glow);
+  box-shadow: 0 0 8px rgba(64,255,159,.6);
+  animation: pulse 2s ease-in-out infinite;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: translateY(-50%) scale(1); }
+  50% { opacity: 0.5; transform: translateY(-50%) scale(1.2); }
+}
+
+/* Toggle active state */
+.toggle-active {
+  background: rgba(255,120,0,0.15);
+  border-color: rgba(255,140,0,0.4);
+  box-shadow: 0 0 8px rgba(255,120,0,0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+html, body {
+  background: linear-gradient(to bottom, #0a0503 0%, #120906 50%, #1c0e08 80%, rgba(255,150,0,0.02) 100%);
+  color: var(--text-main);
+  font-family: Arial, Helvetica, sans-serif;
+  position: relative;
+  min-height: 100vh;
+}
+
+/* Animated glow layer */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(160px);
+  background: radial-gradient(circle at 70% 80%, rgba(255,80,0,0.12), transparent 70%);
+  opacity: 0.7;
+  animation: emberGlow 6s ease-in-out infinite alternate;
+}
+
+@keyframes emberGlow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
+}
+
+/* Utility classes */
+.ember-card { 
+  background: linear-gradient(180deg, rgba(40,24,12,0.9), rgba(15,8,4,0.95));
+  background-color: rgba(255,140,0,0.05);
+  border: 1px solid rgba(255,120,0,0.08);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(255,90,0,0.15), inset 0 0 8px rgba(255,140,0,0.08), 0 0 20px rgba(255,140,0,0.1);
+  transition: all 0.3s ease-in-out;
+  position: relative;
+}
+
+.ember-card:hover {
+  border-color: rgba(255,150,0,0.35);
+  box-shadow: 0 0 22px rgba(255,120,0,0.3), inset 0 0 12px rgba(255,150,0,0.12), 0 0 30px rgba(255,140,0,0.15);
+  filter: brightness(1.03);
+  transform: translateY(-2px);
+}
+
+.soft-border { 
+  border: 1px solid var(--border-soft); 
+}
+
+.ember-btn { 
+  background: linear-gradient(180deg, #ff8a00 0%, #ff5500 90%);
+  color: #140a05;
+  font-weight: 600;
+  border: none;
+  border-radius: 9999px;
+  box-shadow: var(--btn-hover-glow);
+  transition: all 0.2s ease-in-out;
+  padding: 0.5rem 1.25rem;
+}
+
+.ember-btn:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 22px rgba(255,120,0,0.6);
+  filter: brightness(1.15);
+}
+
+.ember-btn-secondary {
+  border: 1px solid var(--amber-core);
+  color: var(--amber-glow);
+  background: transparent;
+  border-radius: 9999px;
+  padding: 0.5rem 1.25rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.ember-btn-secondary:hover {
+  background: rgba(255,120,0,0.1);
+  border-color: var(--amber-glow);
+  box-shadow: 0 0 12px rgba(255,120,0,0.3);
+}
+
+.badge-success { 
+  color: var(--lime-glow);
+  text-shadow: 0 0 6px rgba(64,255,159,.45);
+}
+
+.badge-danger { 
+  color: var(--lava-red);
+  text-shadow: 0 0 6px rgba(255,59,31,.45);
+}
+
+.badge-warning { 
+  color: var(--amber-glow);
+  text-shadow: 0 0 6px rgba(255,179,71,.35);
+}
+
+/* Typography with glow */
+h1, h2, h3 {
+  color: var(--amber-light);
+  text-shadow: 0 0 10px rgba(255,150,0,.25);
+}
+
+.kpi-number {
+  color: var(--amber-bright);
+  text-shadow: 0 0 8px rgba(255,120,0,0.4);
+}
+
+/* Focus states */
+*:focus-visible {
+  outline: 2px solid var(--amber-bright);
+  outline-offset: 2px;
+  box-shadow: 0 0 10px rgba(255,120,0,0.45);
+}
+
+/* Input styles */
+input, select, textarea {
+  background: var(--lava-2);
+  border: 1px solid #3a2212;
+  color: var(--text-main);
+  border-radius: 8px;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--amber-bright);
+  outline-offset: 2px;
+  box-shadow: 0 0 10px rgba(255,120,0,0.45);
+  border-color: rgba(255,150,0,0.4);
+}
+
+/* Ember glow background animation */
+.ember-glow-bg {
+  animation: emberGlow 6s ease-in-out infinite alternate;
+  background: radial-gradient(circle at 40% 30%, rgba(255,90,0,.08), transparent 60%);
+}

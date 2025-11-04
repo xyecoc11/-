@@ -1,0 +1,41 @@
+{
+  "name": "revenue-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "jest",
+    "seed": "node scripts/seed.cjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.78.0",
+    "@whop/react": "^0.3.0",
+    "@whop/sdk": "0.0.3",
+    "chart.js": "^4.5.1",
+    "dayjs": "^1.11.18",
+    "framer-motion": "^12.23.24",
+    "next": "16.0.1",
+    "react": "^19.2.0",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.3.0",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "dotenv": "^17.2.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.0.1",
+    "tailwindcss": "^4",
+    "ts-jest": "^29.4.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ord_001",
+    "userId": "user_a",
+    "amountCents": 2000,
+    "currency": "USD",
+    "createdAt": "2025-10-01T05:00:00.000Z",
+    "refunded": false
+  },
+  {
+    "id": "ord_002",
+    "userId": "user_b",
+    "amountCents": 1000,
+    "currency": "USD",
+    "createdAt": "2025-10-10T10:00:00.000Z",
+    "refunded": true
+  },
+  {
+    "id": "ord_003",
+    "userId": "user_c",
+    "amountCents": 500,
+    "currency": "USD",
+    "createdAt": "2025-09-21T15:30:00.000Z",
+    "refunded": false
+  }
+]

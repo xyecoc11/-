@@ -1,0 +1,33 @@
+[
+  {
+    "id": "sub_001",
+    "userId": "user_a",
+    "planId": "pro",
+    "amountCents": 2000,
+    "currency": "USD",
+    "status": "active",
+    "startedAt": "2025-10-01T00:00:00.000Z",
+    "currentPeriodEnd": "2025-11-01T00:00:00.000Z"
+  },
+  {
+    "id": "sub_002",
+    "userId": "user_b",
+    "planId": "basic",
+    "amountCents": 1000,
+    "currency": "USD",
+    "status": "past_due",
+    "startedAt": "2025-09-15T00:00:00.000Z",
+    "currentPeriodEnd": "2025-10-15T00:00:00.000Z",
+    "canceledAt": "2025-10-10T00:00:00.000Z"
+  },
+  {
+    "id": "sub_003",
+    "userId": "user_c",
+    "planId": "starter",
+    "amountCents": 500,
+    "currency": "USD",
+    "status": "active",
+    "startedAt": "2025-09-20T00:00:00.000Z",
+    "currentPeriodEnd": "2025-10-20T00:00:00.000Z"
+  }
+]
