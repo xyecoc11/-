@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { whopsdk } from "@/lib/whop-sdk";
 import ClientDashboard from "./pageClient";
 
@@ -12,6 +13,10 @@ export default async function DashboardPage({
     : params?.companyId;
 
   if (!companyId) {
+    const fallbackId = process.env.NEXT_PUBLIC_WHOP_COMPANY_ID;
+    if (fallbackId) {
+      redirect(`/dashboard/${fallbackId}`);
+    }
     return (
       <div style={{ padding: 20 }}>
         <p>Missing company id</p>
