@@ -42,7 +42,7 @@ import type { RevenueKPIs, CohortRow, WhopOrder, WhopSubscription, WhopRefund, I
 
 type DataRange = '7d' | '30d' | '90d' | 'YTD';
 
-function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0) {
+function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, companyId?: string) {
   const [data, setData] = useState<null | {
     kpis: RevenueKPIs & {
       mrrGrowth?: number;
@@ -84,7 +84,7 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0) 
         // Fetch metrics from /api/metrics endpoint (from Supabase)
         let metricsData: any = null;
         try {
-          const metricsRes = await fetch('/api/metrics', { 
+          const metricsRes = await fetch(`/api/metrics${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ''}`, { 
             cache: 'no-store',
             next: { revalidate: 0 },
             headers: {
@@ -107,9 +107,9 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0) 
         
         // Still fetch raw data for charts and cohorts
         const [subsRes, ordersRes, refundsRes] = await Promise.all([
-          fetch(`/api/whop/subscriptions?days=${days}`).then(r => r.json()),
-          fetch(`/api/whop/orders?days=${days}`).then(r => r.json()),
-          fetch(`/api/whop/refunds?days=${days}`).then(r => r.json()),
+          fetch(`/api/whop/subscriptions?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
+          fetch(`/api/whop/orders?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
+          fetch(`/api/whop/refunds?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
         ]);
         
         if (subsRes.error) throw new Error(subsRes.error);
@@ -362,7 +362,7 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0) 
   return { ...data, error, loading: !data && !error, lastRefreshed };
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({ companyId }: { companyId?: string }) {
   const { mode } = useUIMode();
   const [range, setRange] = useState<DataRange>('90d');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -387,7 +387,7 @@ export default function DashboardPage() {
     error, 
     loading, 
     lastRefreshed 
-  } = useDashboardData(range, refreshTrigger);
+  } = useDashboardData(range, refreshTrigger, companyId);
 
   // Auto-refresh metrics every 60 seconds
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchOrders } from '@/lib/whop';
+import { parseCompanyId, parseDays } from '@/lib/validate';
 import { apiKeyGuard } from '@/lib/guard';
 
 export async function GET(req: Request) {
@@ -8,8 +9,11 @@ export async function GET(req: Request) {
 
   try {
     const url = new URL(req.url);
-    const days = Math.min(parseInt(url.searchParams.get('days') || '90', 10), 365);
-    const data = await fetchOrders(days);
+    const days = parseDays(url.searchParams.get('days'));
+    const companyIdParam = url.searchParams.get('companyId');
+    if (!companyIdParam) return NextResponse.json({ error: 'companyId required' }, { status: 400 });
+    const companyId = parseCompanyId(companyIdParam);
+    const data = await fetchOrders(days, companyId);
     return NextResponse.json({ data });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Failed to fetch orders' }, { status: 500 });

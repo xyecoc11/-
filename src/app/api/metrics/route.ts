@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/db';
 import dayjs from 'dayjs';
+import { parseCompanyId } from '@/lib/validate';
 
 export const runtime = 'nodejs';
 
@@ -221,8 +222,10 @@ async function computeNRR(): Promise<number> {
   return Math.round(nrr * 10000) / 10000; // Return as decimal (0-1+), rounded to 4 decimals
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const companyId = url.searchParams.get('companyId') ? parseCompanyId(url.searchParams.get('companyId')) : undefined;
     const [
       mrr,
       churn,
@@ -232,13 +235,139 @@ export async function GET() {
       arpu,
       nrr,
     ] = await Promise.all([
-      computeMRR(),
-      computeChurnRate(),
-      computeFailedPaymentsRate(),
-      computeRefundRate(),
-      computeLTV(),
-      computeARPU(),
-      computeNRR(),
+      (async () => {
+        if (!companyId) return computeMRR();
+        const { data: subs } = await supabase
+          .from('subscriptions')
+          .select('amount, interval, started_at, canceled_at, status, company_id')
+          .eq('company_id', companyId)
+          .in('status', ['active', 'trialing']);
+        if (!subs) return 0;
+        let mrr = 0;
+        for (const sub of subs as any[]) {
+          const amount = Number((sub as any).amount) || 0;
+          const interval = (sub as any).interval;
+          mrr += interval === 'year' ? amount / 12 : amount;
+        }
+        return Math.round(mrr);
+      })(),
+      (async () => {
+        if (!companyId) return computeChurnRate();
+        const now = dayjs();
+        const thirtyDaysAgo = now.subtract(30, 'day');
+        const { data: active30dAgo } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('company_id', companyId)
+          .lte('started_at', thirtyDaysAgo.toISOString())
+          .or(`canceled_at.is.null,canceled_at.gt.${thirtyDaysAgo.toISOString()}`)
+          .in('status', ['active', 'trialing']);
+        const { data: canceledLast30d } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('status', 'canceled')
+          .gte('canceled_at', thirtyDaysAgo.toISOString())
+          .lte('canceled_at', now.toISOString());
+        const activeCount = active30dAgo?.length || 0;
+        const canceledCount = canceledLast30d?.length || 0;
+        return activeCount === 0 ? 0 : canceledCount / activeCount;
+      })(),
+      (async () => {
+        if (!companyId) return computeFailedPaymentsRate();
+        const thirtyDaysAgo = dayjs().subtract(30, 'day').toISOString();
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('id, status, company_id')
+          .eq('company_id', companyId)
+          .gte('created_at', thirtyDaysAgo);
+        if (!orders || orders.length === 0) return 0;
+        const failed = orders.filter((o: any) => o.status === 'failed').length;
+        return failed / orders.length;
+      })(),
+      (async () => {
+        if (!companyId) return computeRefundRate();
+        const thirtyDaysAgo = dayjs().subtract(30, 'day').toISOString();
+        const [ordersRes, refundsRes] = await Promise.all([
+          supabase.from('orders').select('amount, company_id').eq('company_id', companyId).gte('created_at', thirtyDaysAgo),
+          supabase.from('refunds').select('amount, company_id').eq('company_id', companyId).gte('created_at', thirtyDaysAgo),
+        ]);
+        const orders = ordersRes.data || [];
+        const refunds = refundsRes.data || [];
+        const totalAmount = orders.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
+        if (totalAmount === 0) return 0;
+        const refundAmount = refunds.reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0);
+        return refundAmount / totalAmount;
+      })(),
+      (async () => {
+        if (!companyId) return computeLTV();
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('user_id, amount, status, company_id')
+          .eq('company_id', companyId)
+          .eq('status', 'succeeded');
+        if (!orders || orders.length === 0) return 0;
+        const userRevenue = new Map<string, number>();
+        for (const order of orders as any[]) {
+          const userId = (order as any).user_id;
+          const amount = Number((order as any).amount) || 0;
+          userRevenue.set(userId, (userRevenue.get(userId) || 0) + amount);
+        }
+        const revenues = Array.from(userRevenue.values());
+        const avg = revenues.reduce((sum, val) => sum + val, 0) / revenues.length;
+        return Math.round(avg);
+      })(),
+      (async () => {
+        if (!companyId) return computeARPU();
+        const { data: activeSubs } = await supabase
+          .from('subscriptions')
+          .select('user_id, company_id')
+          .eq('company_id', companyId)
+          .in('status', ['active', 'trialing']);
+        if (!activeSubs || activeSubs.length === 0) return 0;
+        const activeUsers = new Set((activeSubs as any[]).map((s: any) => s.user_id)).size;
+        if (activeUsers === 0) return 0;
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('amount, company_id')
+          .eq('company_id', companyId)
+          .eq('status', 'succeeded');
+        const totalRevenue = (orders || []).reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
+        return Math.round(totalRevenue / activeUsers);
+      })(),
+      (async () => {
+        if (!companyId) return computeNRR();
+        const now = dayjs();
+        const thisMonthStart = now.startOf('month');
+        const lastMonthEnd = now.subtract(1, 'month').endOf('month');
+        // current MRR for company
+        const { data: currentSubs } = await supabase
+          .from('subscriptions')
+          .select('amount, interval, company_id, status')
+          .eq('company_id', companyId)
+          .in('status', ['active', 'trialing']);
+        let currentMRR = 0;
+        for (const s of (currentSubs || []) as any[]) {
+          const amount = Number((s as any).amount) || 0;
+          currentMRR += (s as any).interval === 'year' ? amount / 12 : amount;
+        }
+        const { data: prevSubs } = await supabase
+          .from('subscriptions')
+          .select('amount, interval, started_at, canceled_at, company_id, status')
+          .eq('company_id', companyId)
+          .in('status', ['active', 'trialing'])
+          .lte('started_at', lastMonthEnd.toISOString())
+          .or(`canceled_at.is.null,canceled_at.gt.${lastMonthEnd.toISOString()}`);
+        let prevMRR = 0;
+        for (const s of (prevSubs || []) as any[]) {
+          const amount = Number((s as any).amount) || 0;
+          prevMRR += (s as any).interval === 'year' ? amount / 12 : amount;
+        }
+        if (prevMRR === 0) return 0;
+        // For simplicity, ignore explicit expansion/contraction here and use ratio of current to previous MRR
+        const nrr = currentMRR / prevMRR;
+        return Math.round(nrr * 10000) / 10000;
+      })(),
     ]);
 
     const arr = mrr * 12;

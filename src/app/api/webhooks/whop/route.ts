@@ -37,6 +37,7 @@ async function logWebhook(eventType: string, payload: any, signature: string, pr
 // Handle payment_succeeded event
 async function handlePaymentSucceeded(data: any) {
   try {
+    const companyId = data.company_id || data.companyId || data.company?.id || null;
     // Upsert user if needed
     if (data.user?.id) {
       await supabaseAdmin.from('users').upsert({
@@ -55,6 +56,7 @@ async function handlePaymentSucceeded(data: any) {
         amount: data.order.amount || data.amount || 0,
         currency: data.order.currency || 'usd',
         status: 'succeeded',
+        company_id: companyId,
         created_at: data.order.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
@@ -68,6 +70,7 @@ async function handlePaymentSucceeded(data: any) {
 // Handle payment_failed event
 async function handlePaymentFailed(data: any) {
   try {
+    const companyId = data.company_id || data.companyId || data.company?.id || null;
     // Upsert user if needed
     if (data.user?.id) {
       await supabaseAdmin.from('users').upsert({
@@ -86,6 +89,7 @@ async function handlePaymentFailed(data: any) {
         amount: data.order.amount || data.amount || 0,
         currency: data.order.currency || 'usd',
         status: 'failed',
+        company_id: companyId,
         created_at: data.order.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
@@ -108,6 +112,7 @@ async function handlePaymentFailed(data: any) {
 // Handle subscription_created event
 async function handleSubscriptionCreated(data: any) {
   try {
+    const companyId = data.company_id || data.companyId || data.company?.id || null;
     // Upsert user
     if (data.user?.id) {
       await supabaseAdmin.from('users').upsert({
@@ -132,6 +137,7 @@ async function handleSubscriptionCreated(data: any) {
         amount: sub.amount || sub.amount_cents || 0,
         interval: sub.interval || 'month',
         currency: sub.currency || 'usd',
+        company_id: companyId,
         created_at: sub.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
@@ -145,10 +151,12 @@ async function handleSubscriptionCreated(data: any) {
 // Handle subscription_canceled event
 async function handleSubscriptionCanceled(data: any) {
   try {
+    const companyId = data.company_id || data.companyId || data.company?.id || null;
     if (data.subscription?.id) {
       await supabaseAdmin.from('subscriptions').update({
         status: 'canceled',
         canceled_at: data.subscription.canceled_at || data.subscription.canceledAt || new Date().toISOString(),
+        company_id: companyId,
         updated_at: new Date().toISOString(),
       }).eq('id', data.subscription.id);
     }
@@ -161,6 +169,7 @@ async function handleSubscriptionCanceled(data: any) {
 // Handle refund_created event
 async function handleRefundCreated(data: any) {
   try {
+    const companyId = data.company_id || data.companyId || data.company?.id || null;
     if (data.refund?.id) {
       // Get order to find user_id
       const { data: order } = await supabaseAdmin
@@ -175,6 +184,7 @@ async function handleRefundCreated(data: any) {
         user_id: order?.user_id || data.user?.id || data.refund.user_id,
         amount: data.refund.amount || data.refund.amount_cents || 0,
         reason: data.refund.reason || null,
+        company_id: companyId,
         created_at: data.refund.created_at || data.refund.createdAt || new Date().toISOString(),
       }, { onConflict: 'id' });
 
@@ -198,14 +208,29 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     const payload = JSON.parse(rawBody);
     const eventType = payload.type || payload.event_type || 'unknown';
+    const eventId = payload.id || payload.event_id || payload.data?.id || null;
 
     // Verify signature if webhook secret is configured
     const webhookSecret = process.env.WHOP_WEBHOOK_SECRET;
     if (webhookSecret && signature) {
       const isValid = verifySignature(rawBody, signature, webhookSecret);
       if (!isValid) {
-        await logWebhook(eventType, payload, signature, false, 'Invalid signature');
+        await logWebhook(eventType, { redacted: true }, signature, false, 'Invalid signature');
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+      }
+    }
+
+    // Idempotency: record event id first
+    if (eventId) {
+      const { error: insErr } = await supabaseAdmin.from('webhook_events').insert({
+        id: eventId,
+        type: eventType,
+        company_id: payload.company_id || payload.companyId || payload.company?.id || null,
+        payload: null, -- do not store full payload to avoid PII leaks
+        status: 'received',
+      });
+      if (insErr && String(insErr.message).includes('duplicate key')) {
+        return NextResponse.json({ received: true, duplicate: true, event: eventType });
       }
     }
 
@@ -250,11 +275,13 @@ export async function POST(req: NextRequest) {
           processed = true; // Logged but not processed
       }
 
-      await logWebhook(eventType, payload, signature, processed);
+      await logWebhook(eventType, { redacted: true }, signature, processed);
+      if (eventId) await supabaseAdmin.from('webhook_events').update({ processed_at: new Date().toISOString(), status: 'processed' }).eq('id', eventId);
       return NextResponse.json({ received: true, event: eventType });
     } catch (err: any) {
       error = err?.message || String(err);
-      await logWebhook(eventType, payload, signature, false, error);
+      await logWebhook(eventType, { redacted: true }, signature, false, error);
+      if (eventId) await supabaseAdmin.from('webhook_events').update({ status: 'failed' }).eq('id', eventId);
       console.error('[Webhook] Processing error:', err);
       return NextResponse.json({ error: error }, { status: 500 });
     }

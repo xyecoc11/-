@@ -35,7 +35,7 @@ export default function ClientDashboard({ companyId, embedded = true }: { compan
         <p>Company: {company?.name || companyId || "unknown"}</p>
         <p>User: {user?.email || user?.id || (!embedded ? "dev/direct" : "anonymous")}</p>
       </div>
-      <DefaultDashboard />
+      <DefaultDashboard companyId={companyId} />
     </div>
   );
 }
