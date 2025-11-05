@@ -209,7 +209,9 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         });
 
         // Cohorts
-        const cohorts = buildRetentionCohorts(orders, 6);
+        // dynamic value from Supabase
+        const cohortsApi = await fetch(`/api/analytics/cohorts?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()).catch(() => ({ cohorts: [] }));
+        const cohorts = (cohortsApi?.cohorts || []) as CohortRow[];
         
         // Insights (POST)
         const kpis = { mrr, arr, churnRate, failedPaymentsRate };
@@ -297,36 +299,13 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         const dunningMetrics = computeDunningMetrics(orders, refunds, 30);
 
         // Mock daily data for dunning
-        const dailyFailedRecovered = Array.from({ length: 30 }, (_, i) => {
-          const date = new Date(now);
-          date.setDate(date.getDate() - (30 - i));
-          const dayOrders = orders.filter(o => {
-            const od = new Date(o.createdAt);
-            return od.toDateString() === date.toDateString();
-          });
-          const dayFailed = dayOrders.filter(o => o.refunded || refunds.some(r => r.orderId === o.id));
-          const dayRecovered = dayFailed.filter(o => !refunds.some(r => r.orderId === o.id));
-          return {
-            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            failed: dayFailed.reduce((sum, o) => sum + o.amountCents, 0),
-            recovered: dayRecovered.reduce((sum, o) => sum + o.amountCents, 0),
-          };
-        });
+        // dynamic value from Supabase
+        const failuresApi = await fetch(`/api/analytics/failures?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()).catch(() => ({ reasons: [], recoveryByDay: [] }));
+        const failureReasons = failuresApi?.reasons || [];
+        const recoveryByDay = failuresApi?.recoveryByDay || [];
+        const dailyFailedRecovered = recoveryByDay.map((x: any) => ({ date: String(x.day), failed: 0, recovered: x.recovery }));
 
-        // Mock failure reasons
-        const failureReasons = [
-          { reason: 'insufficient_funds', count: 45, recoveryRate: 0.65 },
-          { reason: 'do_not_honor', count: 32, recoveryRate: 0.42 },
-          { reason: 'expired_card', count: 28, recoveryRate: 0.78 },
-          { reason: 'invalid_account', count: 15, recoveryRate: 0.20 },
-        ];
-
-        // Mock recovery cohort
-        const recoveryCohort = Array.from({ length: 8 }, (_, i) => ({
-          daysSince: i,
-          recovered: Math.floor(Math.random() * 20 + 10),
-          total: Math.floor(Math.random() * 30 + 20),
-        }));
+        // dynamic value from Supabase (mock removed)
 
         // Anomaly detection
         const mrrDaily = mrrData || [];
@@ -694,17 +673,8 @@ export default function DashboardPage({ companyId }: { companyId?: string }) {
           <DunningRecovery
             metrics={dunningMetrics}
             dailyData={dailyFailedRecovered}
-            failureReasons={[
-              { reason: 'insufficient_funds', count: 45, recoveryRate: 0.65 },
-              { reason: 'do_not_honor', count: 32, recoveryRate: 0.42 },
-              { reason: 'expired_card', count: 28, recoveryRate: 0.78 },
-              { reason: 'invalid_account', count: 15, recoveryRate: 0.20 },
-            ]}
-            recoveryCohort={Array.from({ length: 8 }, (_, i) => ({
-              daysSince: i,
-              recovered: Math.floor(Math.random() * 20 + 10),
-              total: Math.floor(Math.random() * 30 + 20),
-            }))}
+            failureReasons={(failureReasons || []).map((r: any) => ({ reason: r.reason || 'unknown', count: r.count || 0, recoveryRate: (r.recovery_rate || 0) / 100 }))}
+            recoveryCohort={(recoveryByDay || []).map((r: any) => ({ daysSince: r.day, recovered: r.recovery, total: 100 }))}
           />
         )}
 

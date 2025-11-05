@@ -422,3 +422,79 @@ export async function getSystemHealth(companyId: string): Promise<Array<{ label:
   return out;
 }
 
+// dynamic value from Supabase
+export async function getRetentionCohorts(companyId: string): Promise<Array<{ cohort: string; m1: number; m2: number; m3: number; m4: number; m5: number; m6: number }>> {
+  const { data, error } = await supabaseAdmin
+    .from('subscriptions')
+    .select('started_at, canceled_at, company_id')
+    .eq('company_id', companyId);
+  if (error || !data) return [];
+  type Row = { started_at: string; canceled_at: string | null };
+  const rows = data as Row[];
+  // group by cohort month
+  const byCohort = new Map<string, Row[]>();
+  for (const r of rows) {
+    const cohort = dayjs(r.started_at).startOf('month').format('YYYY-MM');
+    if (!byCohort.has(cohort)) byCohort.set(cohort, []);
+    byCohort.get(cohort)!.push(r);
+  }
+  const cohorts = Array.from(byCohort.keys()).sort();
+  const out: Array<{ cohort: string; m1: number; m2: number; m3: number; m4: number; m5: number; m6: number }> = [];
+  for (const cohort of cohorts) {
+    const list = byCohort.get(cohort)!;
+    const base = dayjs(`${cohort}-01`);
+    const total = list.length || 1;
+    const pct = (n: number) => {
+      const threshold = base.add(n, 'month');
+      const kept = list.filter(s => !s.canceled_at || dayjs(s.canceled_at).isAfter(threshold)).length;
+      return Math.round((kept / total) * 100);
+    };
+    out.push({ cohort, m1: pct(1), m2: pct(2), m3: pct(3), m4: pct(4), m5: pct(5), m6: pct(6) });
+  }
+  return out.slice(-6); // last six cohorts
+}
+
+// dynamic value from Supabase
+export async function getFailureAnalytics(companyId: string): Promise<{ reasons: Array<{ reason: string; count: number; recovery_rate: number }>; recoveryByDay: Array<{ day: number; recovery: number }> }> {
+  // Reasons and recovery from refunds
+  const { data: refunds } = await supabaseAdmin
+    .from('refunds')
+    .select('reason, status, company_id')
+    .eq('company_id', companyId);
+  const reasonsAgg = new Map<string, { count: number; recovered: number }>();
+  for (const r of (refunds || []) as any[]) {
+    const key = String(r.reason || 'unknown');
+    const entry = reasonsAgg.get(key) || { count: 0, recovered: 0 };
+    entry.count += 1;
+    if (r.status === 'recovered') entry.recovered += 1;
+    reasonsAgg.set(key, entry);
+  }
+  const reasons = Array.from(reasonsAgg.entries())
+    .map(([reason, v]) => ({ reason, count: v.count, recovery_rate: v.count ? Math.round((v.recovered / v.count) * 100) : 0 }))
+    .sort((a, b) => b.count - a.count)
+    .slice(5);
+
+  // Recovery by day since failure using webhook_events diff processed_at - received_at
+  const { data: events } = await supabaseAdmin
+    .from('webhook_events')
+    .select('received_at, processed_at, status, type')
+    .eq('company_id', companyId)
+    .eq('type', 'payment_failed');
+  const byDay = new Map<number, { total: number; recovered: number }>();
+  for (const e of (events || []) as any[]) {
+    const start = e.received_at ? new Date(e.received_at) : null;
+    const end = e.processed_at ? new Date(e.processed_at) : null;
+    const diff = start && end ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000)) : 0;
+    const day = Math.min(7, diff);
+    const entry = byDay.get(day) || { total: 0, recovered: 0 };
+    entry.total += 1;
+    if (e.status === 'recovered' || e.status === 'processed') entry.recovered += 1;
+    byDay.set(day, entry);
+  }
+  const recoveryByDay = Array.from({ length: 8 }, (_, d) => {
+    const e = byDay.get(d) || { total: 0, recovered: 0 };
+    return { day: d, recovery: e.total ? Math.round((e.recovered / e.total) * 100) : 0 };
+  });
+  return { reasons, recoveryByDay };
+}
+
