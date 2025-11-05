@@ -206,7 +206,13 @@ export async function POST(req: NextRequest) {
   try {
     const signature = req.headers.get('x-whop-signature') || '';
     const rawBody = await req.text();
-    const payload = JSON.parse(rawBody);
+    let payload: any = {};
+    try {
+      payload = rawBody && rawBody.trim().length > 0 ? JSON.parse(rawBody) : {};
+    } catch (e) {
+      console.error('[Webhook] Invalid JSON body');
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
     const eventType = payload.type || payload.event_type || 'unknown';
     const eventId = payload.id || payload.event_id || payload.data?.id || null;
 
@@ -226,7 +232,8 @@ export async function POST(req: NextRequest) {
         id: eventId,
         type: eventType,
         company_id: payload.company_id || payload.companyId || payload.company?.id || null,
-        payload: null, /* redacted payload to avoid PII leaks */
+        // dynamic log: store original payload for audit trail
+        payload: payload,
         status: 'received',
       });
       if (insErr && String(insErr.message).includes('duplicate key')) {
@@ -240,6 +247,50 @@ export async function POST(req: NextRequest) {
 
     try {
       switch (eventType) {
+        case 'order.created': {
+          const companyId = payload.data?.company?.id || payload.company_id || null;
+          const order = payload.data?.order;
+          if (order && companyId) {
+            await supabaseAdmin.from('orders').upsert({
+              id: order.id,
+              company_id: companyId,
+              amount: order.amount || 0,
+              currency: order.currency || 'usd',
+              status: order.status || 'succeeded',
+              user_id: order.user_id || payload.data?.user?.id || null,
+              channel: order.channel || 'unknown',
+              created_at: order.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' });
+          }
+          processed = true;
+          break;
+        }
+
+        case 'subscription.started':
+        case 'subscription.created': {
+          const companyId = payload.data?.company?.id || payload.company_id || null;
+          const sub = payload.data?.subscription;
+          if (sub && companyId) {
+            await supabaseAdmin.from('subscriptions').upsert({
+              id: sub.id,
+              user_id: sub.user_id || payload.data?.user?.id || null,
+              company_id: companyId,
+              plan_id: sub.plan_id || 'unknown',
+              status: sub.status || 'active',
+              amount: sub.amount || sub.amount_cents || 0,
+              interval: sub.interval || 'month',
+              currency: sub.currency || 'usd',
+              started_at: sub.started_at || sub.startedAt || new Date().toISOString(),
+              current_period_end: sub.current_period_end || sub.currentPeriodEnd || null,
+              canceled_at: null,
+              created_at: sub.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' });
+          }
+          processed = true;
+          break;
+        }
         case 'payment_succeeded':
         case 'payment.succeeded':
           await handlePaymentSucceeded(payload.data || payload);
@@ -260,15 +311,103 @@ export async function POST(req: NextRequest) {
 
         case 'subscription_canceled':
         case 'subscription.canceled':
-          await handleSubscriptionCanceled(payload.data || payload);
+        case 'subscription.cancelled': {
+          const companyId = payload.data?.company?.id || payload.company_id || null;
+          const sub = payload.data?.subscription || payload.subscription;
+          if (sub?.id) {
+            await supabaseAdmin.from('subscriptions').update({
+              status: 'canceled',
+              canceled_at: sub.canceled_at || sub.canceledAt || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              company_id: companyId,
+            }).eq('id', sub.id);
+          }
           processed = true;
           break;
+        }
 
         case 'refund_created':
         case 'refund.created':
-          await handleRefundCreated(payload.data || payload);
+        case 'refunds.created': {
+          const companyId = payload.data?.company?.id || payload.company_id || null;
+          const refund = payload.data?.refund || payload.refund;
+          if (refund?.id) {
+            await supabaseAdmin.from('refunds').upsert({
+              id: refund.id,
+              order_id: refund.order_id || refund.orderId || payload.data?.order?.id || null,
+              user_id: refund.user_id || payload.data?.user?.id || null,
+              company_id: companyId,
+              amount: refund.amount || refund.amount_cents || 0,
+              reason: refund.reason || null,
+              status: 'processed',
+              created_at: refund.created_at || refund.createdAt || new Date().toISOString(),
+            }, { onConflict: 'id' });
+          }
           processed = true;
           break;
+        }
+
+        case 'payment.failed': {
+          const companyId = payload.data?.company?.id || payload.company_id || null;
+          const order = payload.data?.order;
+          if (order?.id) {
+            await supabaseAdmin.from('orders').upsert({
+              id: order.id,
+              company_id: companyId,
+              amount: order.amount || order.amount_cents || 0,
+              currency: order.currency || 'usd',
+              status: 'failed',
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' });
+          }
+          processed = true;
+          break;
+        }
+
+        case 'company.installed': {
+          const company = payload.data?.company;
+          if (company?.id) {
+            await supabaseAdmin.from('companies').upsert({
+              id: company.id,
+              name: company.name || null,
+              install_status: 'installed',
+              last_synced_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' });
+          }
+          processed = true;
+          break;
+        }
+
+        case 'company.uninstalled': {
+          const company = payload.data?.company;
+          if (company?.id) {
+            await supabaseAdmin.from('companies').upsert({
+              id: company.id,
+              name: company.name || null,
+              install_status: 'uninstalled',
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' });
+          }
+          processed = true;
+          break;
+        }
+
+        case 'analytics.updated': {
+          const companyId = payload.data?.company?.id || payload.company_id || null;
+          const periodKey = payload.data?.period_key || 'features';
+          const json = payload.data?.payload_json || payload.data || {};
+          if (companyId) {
+            await supabaseAdmin.from('analytics_cache').upsert({
+              company_id: companyId,
+              period_key: periodKey,
+              payload_json: json,
+              refreshed_at: new Date().toISOString(),
+            });
+          }
+          processed = true;
+          break;
+        }
 
         default:
           console.log('[Webhook] Unhandled event type:', eventType);

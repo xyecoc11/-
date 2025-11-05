@@ -78,7 +78,7 @@ export default function EnhancedRetentionHeatmapV2({ cohorts }: EnhancedRetentio
                       <td className="font-mono bg-[var(--bg-2)] sticky left-0 z-10 p-3 text-[var(--text-0)] backdrop-blur-sm border-r border-border">
                         {row.cohortMonth}
                       </td>
-                      {row.cells.map((cell, cellIndex) => {
+                      {(row.cells || []).map((cell, cellIndex) => {
                         const colors = getColorIntensity(cell.retention);
                         const isHovered = hoveredCell?.row === rowIndex && hoveredCell?.col === cellIndex;
                         

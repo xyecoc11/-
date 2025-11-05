@@ -111,12 +111,14 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         }
         
         // Still fetch raw data for charts and cohorts
-        const [subsRes, ordersRes, refundsRes, revRes, healthRes] = await Promise.all([
+        const [subsRes, ordersRes, refundsRes, revRes, healthRes, featRes, mrrRes] = await Promise.all([
           fetch(`/api/whop/subscriptions?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
           fetch(`/api/whop/orders?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
           fetch(`/api/whop/refunds?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
           fetch(`/api/analytics/revenue?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()),
           fetch(`/api/analytics/system-health?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()),
+          fetch(`/api/analytics/features?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()).catch(() => null),
+          fetch(`/api/analytics/mrr?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()).catch(() => null),
         ]);
         
         if (subsRes.error) throw new Error(subsRes.error);
@@ -127,8 +129,10 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         const orders: WhopOrder[] = ordersRes.data ?? [];
         const refunds: WhopRefund[] = refundsRes.data ?? [];
         // dynamic value: computed from Supabase
+        // dynamic value from Supabase
         setPlanRevenue((revRes?.plan || []).map((p: any) => ({ plan: p.plan, revenue: p.revenue })));
-        setChannelRevenue(revRes?.channel || []);
+        setChannelRevenue((revRes?.channels || []).map((c: any) => ({ channel: c.channel, revenue: c.amount })));
+        if (featRes) setFeatureData({ ahaMomentRate: featRes.ahaMomentRate, timeToValueMin: featRes.timeToValueMin, features: featRes.features || [] });
 
         // Use metrics from API if available, otherwise compute locally
         const now = new Date();
@@ -269,21 +273,29 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         // Debug: Log final KPIs before setting state
         console.log('[Dashboard] 🎯 Final KPIs to render:', JSON.stringify(allKpis, null, 2));
 
-        // Compute Net New MRR
+        // Fetch Net New MRR from API (dynamic value from Supabase)
+        let netNewMRR: NetNewMRRBreakdown | undefined;
+        let netNewMRRMonthly: Array<{ month: string; new: number; expansion: number; contraction: number; churn: number }> | undefined;
+        
+        if (mrrRes && !mrrRes.error && mrrRes.current) {
+          netNewMRR = mrrRes.current;
+          netNewMRRMonthly = (mrrRes.monthly || []).map((m: any) => ({
+            month: m.month.slice(5), // "YYYY-MM" -> "MM"
+            new: m.new,
+            expansion: m.expansion,
+            contraction: m.contraction,
+            churn: m.churn,
+          }));
+          console.log('[Dashboard] ✅ Fetched Net New MRR from API:', { current: netNewMRR, monthly: netNewMRRMonthly });
+        } else {
+          // Fallback to local computation if API fails
+          console.warn('[Dashboard] ⚠️ MRR API not available, computing locally');
         const currentPeriodEnd = new Date(now);
         currentPeriodEnd.setMonth(now.getMonth() + 1);
         const currentPeriodStart = new Date(now);
         currentPeriodStart.setMonth(now.getMonth());
-        const netNewMRR = computeNetNewMRR(subs, orders, currentPeriodStart, currentPeriodEnd);
-
-        // Previous period
-        const prevPeriodStart = new Date(now);
-        prevPeriodStart.setMonth(now.getMonth() - 1);
-        const prevPeriodEnd = new Date(now);
-        const prevNetNewMRR = computeNetNewMRR(subs, orders, prevPeriodStart, prevPeriodEnd);
-
-        // Monthly breakdown
-        const netNewMRRMonthly = months.map((month, i) => {
+          netNewMRR = computeNetNewMRR(subs, orders, currentPeriodStart, currentPeriodEnd);
+          netNewMRRMonthly = months.map((month, i) => {
           const monthStart = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]) - 1, 1);
           const monthEnd = new Date(monthStart);
           monthEnd.setMonth(monthEnd.getMonth() + 1);
@@ -296,6 +308,7 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
             churn: breakdown.churn,
           };
         });
+        }
 
         // Dunning metrics
         const dunningMetrics = computeDunningMetrics(orders, refunds, 30);
@@ -677,14 +690,7 @@ export default function DashboardPage({ companyId }: { companyId?: string }) {
         </div>
 
         {/* Dunning & Recovery */}
-        {dunningMetrics && dailyFailedRecovered && (
-          <DunningRecovery
-            metrics={dunningMetrics}
-            dailyData={dailyFailedRecovered}
-            failureReasons={(failureReasons || []).map((r: any) => ({ reason: r.reason || 'unknown', count: r.count || 0, recoveryRate: (r.recovery_rate || 0) / 100 }))}
-            recoveryCohort={(recoveryByDay || []).map((r: any) => ({ daysSince: r.day, recovered: r.recovery, total: 100 }))}
-          />
-        )}
+        <DunningRecovery companyId={companyId} />
 
         {/* Product Adoption */}
         <ProductAdoption 

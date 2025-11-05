@@ -363,23 +363,57 @@ export async function getRevenueByPlan(companyId: string): Promise<Array<{ plan:
 }
 
 // dynamic value: computed from Supabase (webhook-based; may be empty if no events)
-export async function getRevenueByChannel(companyId: string): Promise<Array<{ channel: string; revenue: number }>> {
-  // If you track channels in webhook_events (type like 'order.channel.telegram')
+export async function getRevenueByChannel(companyId: string): Promise<Array<{ channel: string; amount: number }>> {
   const { data, error } = await supabaseAdmin
-    .from('webhook_events')
-    .select('type, company_id')
-    .eq('company_id', companyId);
+    .from('orders')
+    .select('channel, amount, company_id')
+    .eq('company_id', companyId)
+    .eq('status', 'succeeded');
   if (error || !data) return [];
   const agg = new Map<string, number>();
-  for (const e of data as any[]) {
-    const t = String(e.type || '');
-    const m = t.match(/channel\.(\w+)/);
-    if (m) {
-      const ch = m[1];
-      agg.set(ch, (agg.get(ch) || 0) + 0); // no amount in events; requires enrichment
-    }
+  for (const row of data as any[]) {
+    const ch = String(row.channel || 'unknown');
+    const amount = Number(row.amount) || 0;
+    agg.set(ch, (agg.get(ch) || 0) + amount);
   }
-  return Array.from(agg.entries()).map(([channel, revenue]) => ({ channel, revenue }));
+  return Array.from(agg.entries()).map(([channel, amount]) => ({ channel, amount }));
+}
+
+// dynamic value from Supabase
+export async function getCAC(companyId: string): Promise<number | null> {
+  const now = dayjs();
+  const since = now.subtract(30, 'day').startOf('day').toDate().toISOString();
+  const { data: costs } = await supabaseAdmin
+    .from('marketing_costs')
+    .select('cost')
+    .eq('company_id', companyId)
+    .gte('period', since);
+  const totalCost = (costs || []).reduce((s: number, r: any) => s + (Number(r.cost) || 0), 0);
+  const { data: subs } = await supabaseAdmin
+    .from('subscriptions')
+    .select('user_id')
+    .eq('company_id', companyId)
+    .gte('started_at', since);
+  const newCustomers = new Set((subs || []).map((s: any) => s.user_id)).size;
+  if (!newCustomers) return null;
+  return totalCost / newCustomers;
+}
+
+export function getPayback(ltv: number, cac: number | null): number | null {
+  if (!cac || cac <= 0) return null;
+  return ltv / cac;
+}
+
+// dynamic value from Supabase VIEW
+export async function getCohortsView(companyId: string) {
+  const { data } = await supabaseAdmin.from('v_cohorts').select('*').eq('company_id', companyId);
+  return data || [];
+}
+
+// dynamic value from Supabase VIEW
+export async function getFailuresView(companyId: string) {
+  const { data } = await supabaseAdmin.from('v_failures').select('*').eq('company_id', companyId);
+  return data || [];
 }
 
 // dynamic value: computed from Supabase
@@ -454,47 +488,183 @@ export async function getRetentionCohorts(companyId: string): Promise<Array<{ co
   return out.slice(-6); // last six cohorts
 }
 
-// dynamic value from Supabase
-export async function getFailureAnalytics(companyId: string): Promise<{ reasons: Array<{ reason: string; count: number; recovery_rate: number }>; recoveryByDay: Array<{ day: number; recovery: number }> }> {
-  // Reasons and recovery from refunds
-  const { data: refunds } = await supabaseAdmin
-    .from('refunds')
-    .select('reason, status, company_id')
-    .eq('company_id', companyId);
-  const reasonsAgg = new Map<string, { count: number; recovered: number }>();
-  for (const r of (refunds || []) as any[]) {
-    const key = String(r.reason || 'unknown');
-    const entry = reasonsAgg.get(key) || { count: 0, recovered: 0 };
-    entry.count += 1;
-    if (r.status === 'recovered') entry.recovered += 1;
-    reasonsAgg.set(key, entry);
-  }
-  const reasons = Array.from(reasonsAgg.entries())
-    .map(([reason, v]) => ({ reason, count: v.count, recovery_rate: v.count ? Math.round((v.recovered / v.count) * 100) : 0 }))
-    .sort((a, b) => b.count - a.count)
-    .slice(5);
-
-  // Recovery by day since failure using webhook_events diff processed_at - received_at
-  const { data: events } = await supabaseAdmin
-    .from('webhook_events')
-    .select('received_at, processed_at, status, type')
+// dynamic value from Supabase: get failure summary from v_failures view
+export async function getFailureSummary(companyId: string): Promise<{
+  failedPayments: number;
+  atRisk: number;
+  recoveredPayments: number;
+  recoveryRate: number;
+  avgRetries: number;
+}> {
+  const { data, error } = await supabaseAdmin
+    .from('v_failures')
+    .select('*')
     .eq('company_id', companyId)
-    .eq('type', 'payment_failed');
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error('Error loading v_failures:', error);
+    return {
+      failedPayments: 0,
+      atRisk: 0,
+      recoveredPayments: 0,
+      recoveryRate: 0,
+      avgRetries: 0,
+    };
+  }
+
+  return {
+    failedPayments: Number(data.failed_count || 0),
+    atRisk: Number(data.at_risk || 0),
+    recoveredPayments: Number(data.recovered_count || 0),
+    recoveryRate: Number(data.recovery_rate || 0),
+    avgRetries: Number(data.avg_retry_time || 0),
+  };
+}
+
+// dynamic value from Supabase: get failure reasons and recovery by day
+export async function getFailureAnalytics(companyId: string): Promise<{ reasons: Array<{ reason: string; count: number; recovery_rate: number }>; recoveryByDay: Array<{ day: number; recovery: number }> }> {
+  // Reasons from v_failure_reasons view (grouped by reason)
+  const { data: reasonsData } = await supabaseAdmin
+    .from('v_failure_reasons')
+    .select('reason, count, avg_recovery')
+    .eq('company_id', companyId)
+    .order('count', { ascending: false })
+    .limit(5);
+
+  const reasons = (reasonsData || []).map((r: any) => ({
+    reason: String(r.reason || 'unknown'),
+    count: Number(r.count || 0),
+    recovery_rate: Number(r.avg_recovery || 0),
+  }));
+
+  // Recovery by day: compute from failed orders -> recovery time
+  const thirtyDaysAgo = dayjs().subtract(30, 'day').toISOString();
+  const [{ data: refunds }, { data: failedOrders }, { data: succeededOrders }] = await Promise.all([
+    supabaseAdmin.from('refunds').select('reason, status, order_id, created_at').eq('company_id', companyId),
+    supabaseAdmin.from('orders').select('id, company_id, created_at').eq('company_id', companyId).eq('status', 'failed').gte('created_at', thirtyDaysAgo),
+    supabaseAdmin.from('orders').select('id, company_id, created_at').eq('company_id', companyId).eq('status', 'succeeded').gte('created_at', thirtyDaysAgo),
+  ]);
+
   const byDay = new Map<number, { total: number; recovered: number }>();
-  for (const e of (events || []) as any[]) {
-    const start = e.received_at ? new Date(e.received_at) : null;
-    const end = e.processed_at ? new Date(e.processed_at) : null;
-    const diff = start && end ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000)) : 0;
-    const day = Math.min(7, diff);
+  for (const failed of (failedOrders || []) as any[]) {
+    const failedDate = failed.created_at ? new Date(failed.created_at) : null;
+    if (!failedDate) continue;
+    
+    // Check if recovered: refund with status='recovered' or succeeded order
+    let recoveredDate: Date | null = null;
+    const refund = (refunds || []).find((r: any) => r.order_id === failed.id && r.status === 'recovered');
+    if (refund) {
+      recoveredDate = refund.created_at ? new Date(refund.created_at) : null;
+    } else {
+      const succeeded = (succeededOrders || []).find((o: any) => o.id === failed.id);
+      if (succeeded) {
+        recoveredDate = succeeded.created_at ? new Date(succeeded.created_at) : null;
+      }
+    }
+    
+    const daysDiff = recoveredDate ? Math.max(0, Math.round((recoveredDate.getTime() - failedDate.getTime()) / 86400000)) : null;
+    const day = daysDiff !== null ? Math.min(7, daysDiff) : 0;
     const entry = byDay.get(day) || { total: 0, recovered: 0 };
     entry.total += 1;
-    if (e.status === 'recovered' || e.status === 'processed') entry.recovered += 1;
+    if (recoveredDate) entry.recovered += 1;
     byDay.set(day, entry);
   }
+  
   const recoveryByDay = Array.from({ length: 8 }, (_, d) => {
     const e = byDay.get(d) || { total: 0, recovered: 0 };
     return { day: d, recovery: e.total ? Math.round((e.recovered / e.total) * 100) : 0 };
   });
+  
   return { reasons, recoveryByDay };
+}
+
+// dynamic value from Supabase: compute Net New MRR breakdown from subscriptions
+export async function getMRRTrends(companyId: string, periodStart: Date, periodEnd: Date): Promise<NetNewMRRBreakdown> {
+  const start = dayjs(periodStart).toISOString();
+  const end = dayjs(periodEnd).toISOString();
+  
+  // Fetch all subscriptions for this company
+  const { data: subs } = await supabaseAdmin
+    .from('subscriptions')
+    .select('id, user_id, amount, interval, started_at, canceled_at, status, company_id')
+    .eq('company_id', companyId)
+    .order('started_at', { ascending: true });
+  
+  if (!subs || subs.length === 0) {
+    return { new: 0, expansion: 0, contraction: 0, churn: 0, netNew: 0 };
+  }
+  
+  // New: subscriptions started in period
+  const newSubs = (subs || []).filter((s: any) => {
+    const started = s.started_at ? dayjs(s.started_at) : null;
+    if (!started) return false;
+    return started.isAfter(dayjs(periodStart)) && started.isBefore(dayjs(periodEnd));
+  });
+  
+  const newUsers = new Set<string>();
+  let newMRR = 0;
+  for (const s of newSubs) {
+    if (newUsers.has(s.user_id)) continue; // skip duplicates
+    newUsers.add(s.user_id);
+    const amount = Number(s.amount) || 0;
+    const mrrAmount = (s.interval === 'year' ? amount / 12 : amount);
+    newMRR += mrrAmount;
+  }
+  
+  // Churn: canceled subscriptions in period
+  const churnSubs = (subs || []).filter((s: any) => {
+    if (!s.canceled_at || s.status !== 'canceled') return false;
+    const canceled = dayjs(s.canceled_at);
+    return canceled.isAfter(dayjs(periodStart)) && canceled.isBefore(dayjs(periodEnd));
+  });
+  
+  let churn = 0;
+  for (const s of churnSubs) {
+    const amount = Number(s.amount) || 0;
+    const mrrAmount = (s.interval === 'year' ? amount / 12 : amount);
+    churn += mrrAmount;
+  }
+  
+  // Expansion/Contraction: compare plan changes within period
+  const userSubsMap = new Map<string, any[]>();
+  for (const s of (subs || [])) {
+    if (!userSubsMap.has(s.user_id)) userSubsMap.set(s.user_id, []);
+    userSubsMap.get(s.user_id)!.push(s);
+  }
+  
+  let expansion = 0;
+  let contraction = 0;
+  
+  for (const [userId, userSubs] of userSubsMap.entries()) {
+    const sorted = userSubs.sort((a, b) => 
+      dayjs(a.started_at).valueOf() - dayjs(b.started_at).valueOf()
+    );
+    
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const curr = sorted[i];
+      const changeDate = dayjs(curr.started_at);
+      
+      if (!changeDate.isAfter(dayjs(periodStart)) || !changeDate.isBefore(dayjs(periodEnd))) continue;
+      
+      const prevAmount = Number(prev.amount) || 0;
+      const currAmount = Number(curr.amount) || 0;
+      const prevMRR = prev.interval === 'year' ? prevAmount / 12 : prevAmount;
+      const currMRR = curr.interval === 'year' ? currAmount / 12 : currAmount;
+      
+      const delta = currMRR - prevMRR;
+      if (delta > 0) expansion += delta;
+      else if (delta < 0) contraction += Math.abs(delta);
+    }
+  }
+  
+  return {
+    new: Math.round(newMRR * 100), // convert to cents
+    expansion: Math.round(expansion * 100),
+    contraction: Math.round(contraction * 100),
+    churn: Math.round(churn * 100),
+    netNew: Math.round((newMRR + expansion - contraction - churn) * 100),
+  };
 }
 

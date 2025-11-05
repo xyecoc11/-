@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/db';
 import dayjs from 'dayjs';
+import { getCAC, getPayback } from '@/lib/analytics';
 import { parseCompanyId } from '@/lib/validate';
 
 export const runtime = 'nodejs';
@@ -371,8 +372,8 @@ export async function GET(req: Request) {
     ]);
 
     const arr = mrr * 12;
-    const cac = parseFloat(process.env.CAC || '0'); // Placeholder until integrated
-    const payback = cac > 0 ? ltv / cac : null;
+    const cac = companyId ? await getCAC(companyId) : null;
+    const payback = getPayback(ltv, cac);
 
     const metrics: MetricsResponse = {
       mrr,
@@ -382,7 +383,7 @@ export async function GET(req: Request) {
       refundRate,
       ltv,
       arpu,
-      cac,
+      cac: cac ?? 0,
       payback,
       nrr,
     };

@@ -1,25 +1,78 @@
 'use client';
+import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts';
 import { motion } from 'framer-motion';
 import { useUIMode } from '@/hooks/useUIMode';
-import type { DunningMetrics } from '@/lib/analytics';
 import EnhancedMetricCardV2 from './EnhancedMetricCardV2';
 import { Ember } from '@/theme/palette';
 
 interface DunningRecoveryProps {
-  metrics: DunningMetrics;
-  dailyData: Array<{ date: string; failed: number; recovered: number }>;
-  failureReasons: Array<{ reason: string; count: number; recoveryRate: number }>;
-  recoveryCohort: Array<{ daysSince: number; recovered: number; total: number }>;
+  companyId?: string;
+  // Legacy props for backward compatibility
+  metrics?: any;
+  dailyData?: Array<{ date: string; failed: number; recovered: number }>;
+  failureReasons?: Array<{ reason: string; count: number; recoveryRate: number }>;
+  recoveryCohort?: Array<{ daysSince: number; recovered: number; total: number }>;
+}
+
+interface FailuresData {
+  failedPayments: number;
+  atRisk: number;
+  recoveredPayments: number;
+  recoveryRate: number;
+  avgRetries: number;
+  reasons: Array<{ reason: string; count: number; recovery_rate: number }>;
+  recoveryByDay: Array<{ day: number; recovery: number }>;
 }
 
 export default function DunningRecovery({
-  metrics,
-  dailyData,
-  failureReasons,
-  recoveryCohort,
+  companyId,
+  metrics: legacyMetrics,
+  dailyData: legacyDailyData,
+  failureReasons: legacyFailureReasons,
+  recoveryCohort: legacyRecoveryCohort,
 }: DunningRecoveryProps) {
   const { mode } = useUIMode();
+  const [failures, setFailures] = useState<FailuresData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!companyId) {
+      setLoading(false);
+      return;
+    }
+
+    const loadData = async () => {
+      try {
+        const res = await fetch(`/api/analytics/failures?companyId=${encodeURIComponent(companyId)}`);
+        if (!res.ok) throw new Error('Failed to fetch failures data');
+        const data = await res.json();
+        setFailures(data);
+      } catch (error) {
+        console.error('[DunningRecovery] Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [companyId]);
+
+  // Use API data if available, otherwise fall back to legacy props
+  const failureReasons = failures?.reasons || legacyFailureReasons || [];
+  const recoveryByDay = failures?.recoveryByDay || legacyRecoveryCohort || [];
+
+  const chartData = (failures?.recoveryByDay || legacyDailyData || []).map((d: any) => ({
+    date: String(d.day || d.date || ''),
+    failed: 0, // Failed payments by day not available in current API
+    recovered: typeof d.recovery === 'number' ? d.recovery : (d.recovered || 0),
+  }));
+
+  const cohortData = recoveryByDay.map((c: any) => ({
+    days: `D${c.daysSince || c.day || 0}`,
+    rate: c.recovery !== undefined ? c.recovery : (c.total > 0 ? (c.recovered / c.total) * 100 : 0),
+  }));
+
   const MotionWrapper = mode === 'performance' ? 'div' : motion.div;
   const motionProps = mode === 'performance' ? {} : {
     initial: { opacity: 0, y: 20 },
@@ -27,16 +80,15 @@ export default function DunningRecovery({
     transition: { duration: 0.5 },
   };
 
-  const chartData = dailyData.map(d => ({
-    ...d,
-    failed: d.failed / 100,
-    recovered: d.recovered / 100,
-  }));
-
-  const cohortData = recoveryCohort.map(c => ({
-    days: `D${c.daysSince}`,
-    rate: c.total > 0 ? (c.recovered / c.total) * 100 : 0,
-  }));
+  if (loading) {
+    return (
+      <div className="ember-card p-6">
+        <div className="text-center py-8 text-sm" style={{ color: 'var(--text-dim)' }}>
+          Loading Dunning & Recovery data...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <MotionWrapper {...motionProps} className="space-y-6">
@@ -50,28 +102,27 @@ export default function DunningRecovery({
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <EnhancedMetricCardV2
             label="Failed Payments"
-            value={metrics.failedPaymentsRate}
-            percent
-            trendColor={metrics.failedPaymentsRateDelta >= 0 ? 'red' : 'green'}
-            change={metrics.failedPaymentsRateDelta * 100}
-            tooltip="Percentage of failed payments"
+            value={failures?.failedPayments || legacyMetrics?.failedPaymentsRate || 0}
+            trendColor={failures?.recoveryRate && failures.recoveryRate > 0 ? 'green' : 'red'}
+            change={failures?.recoveryRate ? failures.recoveryRate : 0}
+            tooltip="Number of failed payments in last 30 days"
           />
           <EnhancedMetricCardV2
             label="$ at Risk"
-            value={metrics.amountAtRisk}
+            value={(failures?.atRisk || legacyMetrics?.amountAtRisk || 0) / 100}
             trendColor="red"
             tooltip="Total amount from failed payments in last 30 days"
           />
           <EnhancedMetricCardV2
             label="Recovery Rate"
-            value={metrics.recoveryRate}
+            value={(failures?.recoveryRate || legacyMetrics?.recoveryRate || 0) / 100}
             percent
-            trendColor={metrics.recoveryRate >= 0.5 ? 'green' : 'red'}
+            trendColor={(failures?.recoveryRate || legacyMetrics?.recoveryRate || 0) >= 50 ? 'green' : 'red'}
             tooltip="Percentage of failed payments recovered within 7 days"
           />
           <EnhancedMetricCardV2
             label="Avg Retries"
-            value={metrics.avgRetries * 100}
+            value={failures?.avgRetries || legacyMetrics?.avgRetries || 0}
             trendColor="amber"
             tooltip="Average number of retry attempts to recover payment"
           />
@@ -111,17 +162,21 @@ export default function DunningRecovery({
                   </tr>
                 </thead>
                 <tbody>
-                  {failureReasons.map((r, i) => (
-                    <tr key={r.reason} className="border-t border-border hover:bg-[#221a14]">
-                      <td className="p-2 text-[var(--text-0)]">{r.reason}</td>
-                      <td className="p-2 text-right text-[var(--text-2)]">{r.count}</td>
-                      <td className="p-2 text-right">
-                        <span className={r.recoveryRate >= 0.5 ? 'badge-success' : 'badge-danger'}>
-                          {(r.recoveryRate * 100).toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {failureReasons.map((r, i) => {
+                    // Handle both API format (recovery_rate as number) and legacy format (recoveryRate as decimal)
+                    const recoveryRate = r.recovery_rate !== undefined ? r.recovery_rate : (r.recoveryRate || 0) * 100;
+                    return (
+                      <tr key={r.reason || `reason-${i}`} className="border-t border-border hover:bg-[#221a14]">
+                        <td className="p-2 text-[var(--text-0)]">{r.reason || 'unknown'}</td>
+                        <td className="p-2 text-right text-[var(--text-2)]">{r.count || 0}</td>
+                        <td className="p-2 text-right">
+                          <span className={recoveryRate >= 50 ? 'badge-success' : 'badge-danger'}>
+                            {recoveryRate.toFixed(1)}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
