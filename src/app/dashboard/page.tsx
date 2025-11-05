@@ -74,6 +74,9 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
   }>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [planRevenue, setPlanRevenue] = useState<Array<{ plan: string; revenue: number }>>([]);
+  const [channelRevenue, setChannelRevenue] = useState<Array<{ channel: string; revenue: number }>>([]);
+  const [featureData, setFeatureData] = useState<{ ahaMomentRate: number | null; timeToValueMin: number | null; features: Array<{ feature: string; adoptionRate: number; retentionUplift: number }>; } | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -106,10 +109,12 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         }
         
         // Still fetch raw data for charts and cohorts
-        const [subsRes, ordersRes, refundsRes] = await Promise.all([
+        const [subsRes, ordersRes, refundsRes, revRes, healthRes] = await Promise.all([
           fetch(`/api/whop/subscriptions?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
           fetch(`/api/whop/orders?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
           fetch(`/api/whop/refunds?days=${days}${companyId ? `&companyId=${encodeURIComponent(companyId)}` : ''}`).then(r => r.json()),
+          fetch(`/api/analytics/revenue?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()),
+          fetch(`/api/analytics/system-health?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()),
         ]);
         
         if (subsRes.error) throw new Error(subsRes.error);
@@ -119,6 +124,9 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         const subs: WhopSubscription[] = subsRes.data ?? [];
         const orders: WhopOrder[] = ordersRes.data ?? [];
         const refunds: WhopRefund[] = refundsRes.data ?? [];
+        // dynamic value: computed from Supabase
+        setPlanRevenue((revRes?.plan || []).map((p: any) => ({ plan: p.plan, revenue: p.revenue })));
+        setChannelRevenue(revRes?.channel || []);
 
         // Use metrics from API if available, otherwise compute locally
         const now = new Date();
@@ -633,7 +641,7 @@ export default function DashboardPage({ companyId }: { companyId?: string }) {
         )}
 
         {/* Revenue Breakdown */}
-        <RevenueBreakdownV2 />
+        <RevenueBreakdownV2 planRevenue={planRevenue} channelRevenue={channelRevenue} />
 
         {/* Net New MRR Breakdown */}
         {netNewMRR && netNewMRRMonthly && (
@@ -690,10 +698,14 @@ export default function DashboardPage({ companyId }: { companyId?: string }) {
         )}
 
         {/* Product Adoption */}
-        <ProductAdoption />
+        <ProductAdoption 
+          ahaMomentRate={featureData?.ahaMomentRate ?? 0}
+          timeToValue={featureData?.timeToValueMin ?? 0}
+          featureAdoption={featureData?.features ?? []}
+        />
 
         {/* System Health */}
-        <SystemHealthV2 />
+        <SystemHealthV2 companyId={companyId} />
       </main>
     </div>
   );

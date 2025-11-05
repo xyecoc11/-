@@ -27,14 +27,9 @@ const generateAdoptionCurve = (feature: string) => {
 };
 
 export default function ProductAdoption({
-  ahaMomentRate = 0.65,
-  timeToValue = 12,
-  featureAdoption = [
-    { feature: 'Dashboard', adoptionRate: 0.85, retentionUplift: 0.15 },
-    { feature: 'Analytics', adoptionRate: 0.72, retentionUplift: 0.22 },
-    { feature: 'Reports', adoptionRate: 0.58, retentionUplift: 0.18 },
-    { feature: 'Integrations', adoptionRate: 0.45, retentionUplift: 0.25 },
-  ],
+  ahaMomentRate = 0,
+  timeToValue = 0,
+  featureAdoption = [],
 }: ProductAdoptionProps) {
   const { mode } = useUIMode();
   const [selectedFeature, setSelectedFeature] = useState(featureAdoption[0]?.feature || '');

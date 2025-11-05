@@ -10,27 +10,22 @@ interface HealthMetric {
   trend?: 'up' | 'down' | 'stable';
 }
 
-export default function SystemHealthV2() {
-  const [metrics, setMetrics] = useState<HealthMetric[]>([
-    { label: 'API Uptime', value: 99.9, unit: '%', status: 'healthy', trend: 'stable' },
-    { label: 'Telegram Delivery', value: 98.5, unit: '%', status: 'healthy', trend: 'up' },
-    { label: 'Email Delivery', value: 97.2, unit: '%', status: 'healthy', trend: 'stable' },
-    { label: 'Avg Latency', value: 145, unit: 'ms', status: 'healthy', trend: 'down' },
-    { label: 'Last Sync', value: 2, unit: 'min ago', status: 'healthy', trend: 'stable' },
-  ]);
+export default function SystemHealthV2({ companyId }: { companyId?: string }) {
+  const [metrics, setMetrics] = useState<HealthMetric[]>([]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMetrics(prev => prev.map(m => ({
-        ...m,
-        value: m.label === 'Last Sync' 
-          ? Math.max(0.1, m.value - 0.1)
-          : m.value + (Math.random() - 0.5) * 0.2,
-      })));
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, []);
+    let active = true;
+    (async () => {
+      try {
+        // dynamic value: computed from Supabase
+        const res = await fetch(`/api/analytics/system-health?companyId=${encodeURIComponent(companyId || '')}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setMetrics(data.metrics || []);
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, [companyId]);
 
   const getStatusIcon = (status: string) => {
     if (status === 'healthy') return <span className="w-2 h-2 rounded-full bg-[var(--success-500)]" style={{ boxShadow: 'var(--glow-green)' }} />;
@@ -114,6 +109,9 @@ export default function SystemHealthV2() {
             </motion.div>
           ))}
         </div>
+        {metrics.length === 0 && (
+          <p className="text-xs mt-2" style={{ color: 'var(--text-dim)' }}>No data yet</p>
+        )}
       </div>
     </motion.div>
   );

@@ -37,19 +37,11 @@ export default function RevenueBreakdownV2({
   const [hoveredChannel, setHoveredChannel] = useState<string | null>(null);
   const [hoveredPlan, setHoveredPlan] = useState<string | null>(null);
 
-  const defaultPlans: PlanRevenue[] = planRevenue.length > 0 ? planRevenue : [
-    { plan: 'Basic', revenue: 500 },
-    { plan: 'Pro', revenue: 2000 },
-    { plan: 'Enterprise', revenue: 5000 },
-  ];
+  // dynamic value: computed from Supabase (no static fallbacks)
+  const defaultPlans: PlanRevenue[] = planRevenue;
 
-  const defaultChannels: ChannelRevenue[] = channelRevenue.length > 0 ? channelRevenue : [
-    { channel: 'Telegram', revenue: 1500 },
-    { channel: 'Email', revenue: 800 },
-    { channel: 'Discord', revenue: 1200 },
-    { channel: 'Twitter', revenue: 400 },
-    { channel: 'Instagram', revenue: 300 },
-  ];
+  // dynamic value: computed from Supabase (no static fallbacks)
+  const defaultChannels: ChannelRevenue[] = channelRevenue;
 
   const channelData = defaultChannels.map(c => ({
     ...c,
@@ -194,6 +186,9 @@ export default function RevenueBreakdownV2({
                 <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
+            {channelData.length === 0 && (
+              <p className="text-xs mt-2" style={{ color: 'var(--text-dim)' }}>No data yet</p>
+            )}
           </div>
           {/* Legend */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
@@ -304,6 +299,9 @@ export default function RevenueBreakdownV2({
               </defs>
             </BarChart>
           </ResponsiveContainer>
+          {planData.length === 0 && (
+            <p className="text-xs mt-2" style={{ color: 'var(--text-dim)' }}>No data yet</p>
+          )}
         </div>
       </motion.div>
     </div>

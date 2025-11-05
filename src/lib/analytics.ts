@@ -1,6 +1,7 @@
 import type { WhopSubscription, WhopOrder, WhopRefund } from './types';
 import dayjs from 'dayjs';
 import type { CohortRow } from './types';
+import { supabaseAdmin } from './db';
 
 /**
  * Compute Monthly Recurring Revenue (MRR) in cents at given date.
@@ -343,3 +344,81 @@ export function detectMRRAnomalies(mrrDaily: number[]): number[] {
     return zScore > 2 ? index : -1;
   }).filter(idx => idx >= 0);
 }
+
+// dynamic value: computed from Supabase
+export async function getRevenueByPlan(companyId: string): Promise<Array<{ plan: string; revenue: number }>> {
+  const { data, error } = await supabaseAdmin
+    .from('subscriptions')
+    .select('plan_id, amount, status, company_id')
+    .eq('company_id', companyId)
+    .in('status', ['active', 'trialing']);
+  if (error || !data) return [];
+  const agg = new Map<string, number>();
+  for (const row of data as any[]) {
+    const plan = String(row.plan_id || 'Unknown');
+    const amount = Number(row.amount) || 0;
+    agg.set(plan, (agg.get(plan) || 0) + amount);
+  }
+  return Array.from(agg.entries()).map(([plan, revenue]) => ({ plan, revenue }));
+}
+
+// dynamic value: computed from Supabase (webhook-based; may be empty if no events)
+export async function getRevenueByChannel(companyId: string): Promise<Array<{ channel: string; revenue: number }>> {
+  // If you track channels in webhook_events (type like 'order.channel.telegram')
+  const { data, error } = await supabaseAdmin
+    .from('webhook_events')
+    .select('type, company_id')
+    .eq('company_id', companyId);
+  if (error || !data) return [];
+  const agg = new Map<string, number>();
+  for (const e of data as any[]) {
+    const t = String(e.type || '');
+    const m = t.match(/channel\.(\w+)/);
+    if (m) {
+      const ch = m[1];
+      agg.set(ch, (agg.get(ch) || 0) + 0); // no amount in events; requires enrichment
+    }
+  }
+  return Array.from(agg.entries()).map(([channel, revenue]) => ({ channel, revenue }));
+}
+
+// dynamic value: computed from Supabase
+export async function getFeatureAdoption(companyId: string): Promise<{ ahaMomentRate: number | null; timeToValueMin: number | null; features: Array<{ feature: string; adoptionRate: number; retentionUplift: number }>; }>{
+  const { data } = await supabaseAdmin
+    .from('analytics_cache')
+    .select('payload_json')
+    .eq('company_id', companyId)
+    .eq('period_key', 'features')
+    .maybeSingle();
+  if (!data || !data.payload_json) return { ahaMomentRate: null, timeToValueMin: null, features: [] };
+  const p = data.payload_json as any;
+  return {
+    ahaMomentRate: typeof p.ahaMomentRate === 'number' ? p.ahaMomentRate : null,
+    timeToValueMin: typeof p.timeToValueMin === 'number' ? p.timeToValueMin : null,
+    features: Array.isArray(p.features) ? p.features : [],
+  };
+}
+
+// dynamic value: computed from Supabase
+export async function getSystemHealth(companyId: string): Promise<Array<{ label: string; value: number; unit: string; status: 'healthy'|'warning'|'critical'; trend?: 'up'|'down'|'stable'; }>>{
+  const out: Array<{ label: string; value: number; unit: string; status: 'healthy'|'warning'|'critical'; trend?: 'up'|'down'|'stable'; }> = [];
+  const { data: comp } = await supabaseAdmin.from('companies').select('last_synced_at').eq('id', companyId).maybeSingle();
+  if (comp?.last_synced_at) {
+    const minutes = Math.max(0, (Date.now() - new Date(comp.last_synced_at as string).getTime()) / 60000);
+    out.push({ label: 'Last Sync', value: Number(minutes.toFixed(1)), unit: 'min', status: minutes < 10 ? 'healthy' : minutes < 60 ? 'warning' : 'critical', trend: 'stable' });
+  }
+  // Delivery rates by webhook types
+  const types = ['telegram_delivery','email_delivery'];
+  for (const t of types) {
+    const { data } = await supabaseAdmin
+      .from('webhook_events')
+      .select('status')
+      .eq('company_id', companyId)
+      .eq('type', t);
+    const total = data?.length || 0;
+    const success = (data || []).filter((x: any) => x.status === 'processed').length;
+    if (total > 0) out.push({ label: t === 'telegram_delivery' ? 'Telegram Delivery' : 'Email Delivery', value: (success / total) * 100, unit: '%', status: success/Math.max(1,total) > 0.95 ? 'healthy' : 'warning', trend: 'stable' });
+  }
+  return out;
+}
+
