@@ -112,15 +112,21 @@ async function seed() {
   if (mktErr) throw mktErr;
   console.log('Inserted marketing_costs:', marketing.length);
 
-  // Feature adoption events (if table exists)
+  // Feature adoption events (if table exists) - разбросаны по последним 30 дням для визуализации кривой
   const hasFeature = await ensureFeatureEventsTable();
   if (hasFeature) {
     const features = [
-      { id: 'feat_1', company_id: COMPANY_ID, user_id: 'usr_1', feature: 'dashboard_view', timestamp: daysAgo(7) },
-      { id: 'feat_2', company_id: COMPANY_ID, user_id: 'usr_2', feature: 'report_download', timestamp: daysAgo(5) },
-      { id: 'feat_3', company_id: COMPANY_ID, user_id: 'usr_3', feature: 'payment_retry', timestamp: daysAgo(3) },
-      { id: 'feat_4', company_id: COMPANY_ID, user_id: 'usr_4', feature: 'insight_click', timestamp: daysAgo(2) },
-      { id: 'feat_5', company_id: COMPANY_ID, user_id: 'usr_5', feature: 'cohort_view', timestamp: daysAgo(1) },
+      { id: 'feat_1', company_id: COMPANY_ID, user_id: 'usr_1', feature: 'dashboard_view', timestamp: daysAgo(10) },
+      { id: 'feat_2', company_id: COMPANY_ID, user_id: 'usr_2', feature: 'report_download', timestamp: daysAgo(8) },
+      { id: 'feat_3', company_id: COMPANY_ID, user_id: 'usr_3', feature: 'payment_retry', timestamp: daysAgo(6) },
+      { id: 'feat_4', company_id: COMPANY_ID, user_id: 'usr_4', feature: 'insight_click', timestamp: daysAgo(4) },
+      { id: 'feat_5', company_id: COMPANY_ID, user_id: 'usr_5', feature: 'cohort_view', timestamp: daysAgo(2) },
+      // Additional events for better curve visualization
+      { id: 'feat_6', company_id: COMPANY_ID, user_id: 'usr_6', feature: 'dashboard_view', timestamp: daysAgo(15) },
+      { id: 'feat_7', company_id: COMPANY_ID, user_id: 'usr_7', feature: 'report_download', timestamp: daysAgo(12) },
+      { id: 'feat_8', company_id: COMPANY_ID, user_id: 'usr_8', feature: 'insight_click', timestamp: daysAgo(20) },
+      { id: 'feat_9', company_id: COMPANY_ID, user_id: 'usr_9', feature: 'payment_retry', timestamp: daysAgo(25) },
+      { id: 'feat_10', company_id: COMPANY_ID, user_id: 'usr_10', feature: 'cohort_view', timestamp: daysAgo(28) },
     ];
     let { error: featErr } = await supabase.from('feature_events').upsert(features, { onConflict: 'id' });
     if (featErr) console.warn('[seed] feature_events upsert error:', featErr.message);

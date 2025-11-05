@@ -433,6 +433,25 @@ export async function getFeatureAdoption(companyId: string): Promise<{ ahaMoment
   };
 }
 
+// dynamic value from Supabase: get adoption curve data
+export async function getAdoptionCurve(companyId: string, days = 30): Promise<Array<{ day: number; adoption_pct: number }>> {
+  const { data, error } = await supabaseAdmin
+    .from('v_adoption_curve')
+    .select('day, adoption_pct')
+    .eq('company_id', companyId)
+    .order('day', { ascending: true });
+  
+  if (error) {
+    console.error('Error loading v_adoption_curve:', error);
+    return [];
+  }
+  
+  return (data || []).map((row: any) => ({
+    day: row.day,
+    adoption_pct: Number(row.adoption_pct || 0),
+  }));
+}
+
 // dynamic value: computed from Supabase
 export async function getSystemHealth(companyId: string): Promise<Array<{ label: string; value: number; unit: string; status: 'healthy'|'warning'|'critical'; trend?: 'up'|'down'|'stable'; }>>{
   const out: Array<{ label: string; value: number; unit: string; status: 'healthy'|'warning'|'critical'; trend?: 'up'|'down'|'stable'; }> = [];

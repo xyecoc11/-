@@ -694,6 +694,7 @@ export default function DashboardPage({ companyId }: { companyId?: string }) {
 
         {/* Product Adoption */}
         <ProductAdoption 
+          companyId={companyId}
           ahaMomentRate={featureData?.ahaMomentRate ?? 0}
           timeToValue={featureData?.timeToValueMin ?? 0}
           featureAdoption={featureData?.features ?? []}

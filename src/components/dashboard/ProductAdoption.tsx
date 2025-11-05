@@ -1,12 +1,13 @@
 'use client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { motion } from 'framer-motion';
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useUIMode } from '@/hooks/useUIMode';
 import EnhancedMetricCardV2 from './EnhancedMetricCardV2';
 import { Ember } from '@/theme/palette';
 
 interface ProductAdoptionProps {
+  companyId?: string;
   ahaMomentRate?: number;
   timeToValue?: number; // minutes
   featureAdoption?: Array<{
@@ -16,27 +17,54 @@ interface ProductAdoptionProps {
   }>;
 }
 
-// Mock feature adoption curve data
-const generateAdoptionCurve = (feature: string) => {
-  const days = Array.from({ length: 30 }, (_, i) => i + 1);
-  let cumulative = 0;
-  return days.map(day => {
-    cumulative += Math.random() * 5 + (30 - day) * 0.5;
-    return { day, users: Math.min(cumulative, 100) };
-  });
-};
-
 export default function ProductAdoption({
-  ahaMomentRate = 0,
-  timeToValue = 0,
-  featureAdoption = [],
+  companyId,
+  ahaMomentRate: propAhaMomentRate,
+  timeToValue: propTimeToValue,
+  featureAdoption: propFeatureAdoption,
 }: ProductAdoptionProps) {
   const { mode } = useUIMode();
-  const [selectedFeature, setSelectedFeature] = useState(featureAdoption[0]?.feature || '');
+  const [adoption, setAdoption] = useState<Array<{ x: number; y: number }>>([]);
+  const [ahaMomentRate, setAhaMomentRate] = useState(propAhaMomentRate || 0);
+  const [timeToValue, setTimeToValue] = useState(propTimeToValue || 0);
+  const [featureAdoption, setFeatureAdoption] = useState(propFeatureAdoption || []);
+  const [loading, setLoading] = useState(true);
 
-  const adoptionCurve = useMemo(() => {
-    return generateAdoptionCurve(selectedFeature);
-  }, [selectedFeature]);
+  useEffect(() => {
+    if (!companyId) {
+      setLoading(false);
+      return;
+    }
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/analytics/features?companyId=${encodeURIComponent(companyId)}`);
+        if (!res.ok) throw new Error('Failed to fetch features data');
+        const json = await res.json();
+        
+        // Convert curve data to chart format
+        const points = (json.curve ?? []).map((row: any, idx: number) => ({
+          x: idx + 1, // день 1..30 на оси X
+          y: Number(row.adoption_pct), // % кумулятивной адопшена
+        }));
+        setAdoption(points);
+        
+        // Update other metrics from API
+        if (json.ahaMomentRate !== undefined) setAhaMomentRate(json.ahaMomentRate);
+        if (json.timeToValueMin !== undefined) setTimeToValue(json.timeToValueMin);
+        if (Array.isArray(json.features)) setFeatureAdoption(json.features);
+      } catch (error) {
+        console.error('[ProductAdoption] Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [companyId]);
+
+  // Convert adoption array to chart format
+  const adoptionCurve = adoption.length > 0 
+    ? adoption.map(p => ({ day: p.x, users: p.y }))
+    : [];
 
   const MotionWrapper = mode === 'performance' ? 'div' : motion.div;
   const motionProps = mode === 'performance' ? {} : {
@@ -72,32 +100,31 @@ export default function ProductAdoption({
 
         {/* Adoption Curve */}
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-semibold text-[var(--text-1)]">Cumulative Adoption Curve</h4>
-            <select
-              value={selectedFeature}
-              onChange={(e) => setSelectedFeature(e.target.value)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-1)] soft-border text-[var(--text-0)] focus:ring-2 focus:ring-[var(--amber-500)]/50"
-            >
-              {featureAdoption.map(f => (
-                <option key={f.feature} value={f.feature}>{f.feature}</option>
-              ))}
-            </select>
-          </div>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={adoptionCurve}>
-              <CartesianGrid strokeDasharray="3 3" stroke={Ember.grid} strokeOpacity={0.45} />
-              <XAxis dataKey="day" stroke={Ember.grid} tick={{ fill: Ember.text.dim, fontSize: '12px' }} />
-              <YAxis stroke={Ember.grid} tick={{ fill: Ember.text.dim, fontSize: '12px' }} tickFormatter={(v) => `${v}%`} />
-              <Tooltip contentStyle={{
-                background: 'rgba(26,20,15,.95)',
-                border: `1px solid ${Ember.border}`,
-                color: Ember.text.main,
-                borderRadius: '12px'
-              }} />
-              <Line type="monotone" dataKey="users" stroke={Ember.amber.bright} strokeWidth={2} isAnimationActive={mode === 'ai'} />
-            </LineChart>
-          </ResponsiveContainer>
+          <h4 className="text-sm font-semibold text-[var(--text-1)] mb-3">Cumulative Adoption Curve</h4>
+          {loading ? (
+            <div className="text-center py-8 text-sm" style={{ color: 'var(--text-dim)' }}>
+              Loading adoption curve...
+            </div>
+          ) : adoptionCurve.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={adoptionCurve}>
+                <CartesianGrid strokeDasharray="3 3" stroke={Ember.grid} strokeOpacity={0.45} />
+                <XAxis dataKey="day" stroke={Ember.grid} tick={{ fill: Ember.text.dim, fontSize: '12px' }} />
+                <YAxis stroke={Ember.grid} tick={{ fill: Ember.text.dim, fontSize: '12px' }} tickFormatter={(v) => `${v}%`} />
+                <Tooltip contentStyle={{
+                  background: 'rgba(26,20,15,.95)',
+                  border: `1px solid ${Ember.border}`,
+                  color: Ember.text.main,
+                  borderRadius: '12px'
+                }} />
+                <Line type="monotone" dataKey="users" stroke={Ember.amber.bright} strokeWidth={2} isAnimationActive={mode === 'ai'} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-center py-8 text-sm" style={{ color: 'var(--text-dim)' }}>
+              No adoption data available
+            </div>
+          )}
         </div>
 
         {/* Feature Table */}
