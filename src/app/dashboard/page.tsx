@@ -367,7 +367,15 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
     return () => { isMounted = false; };
   }, [range, refreshTrigger]);
 
-  return { ...data, error, loading: !data && !error, lastRefreshed };
+  return { 
+    ...data, 
+    error, 
+    loading: !data && !error, 
+    lastRefreshed,
+    planRevenue,
+    channelRevenue,
+    featureData,
+  };
 }
 
 export default function DashboardPage({ companyId }: { companyId?: string }) {
@@ -394,7 +402,10 @@ export default function DashboardPage({ companyId }: { companyId?: string }) {
     dailyFailedRecovered,
     error, 
     loading, 
-    lastRefreshed 
+    lastRefreshed,
+    planRevenue,
+    channelRevenue,
+    featureData,
   } = useDashboardData(range, refreshTrigger, companyId);
 
   // Auto-refresh metrics every 60 seconds
