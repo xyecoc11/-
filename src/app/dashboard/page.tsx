@@ -77,6 +77,8 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
   const [planRevenue, setPlanRevenue] = useState<Array<{ plan: string; revenue: number }>>([]);
   const [channelRevenue, setChannelRevenue] = useState<Array<{ channel: string; revenue: number }>>([]);
   const [featureData, setFeatureData] = useState<{ ahaMomentRate: number | null; timeToValueMin: number | null; features: Array<{ feature: string; adoptionRate: number; retentionUplift: number }>; } | null>(null);
+  const [failureReasons, setFailureReasons] = useState<Array<{ reason: string; count: number; recovery_rate: number }>>([]);
+  const [recoveryByDay, setRecoveryByDay] = useState<Array<{ day: number; recovery: number }>>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -301,9 +303,11 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
         // Mock daily data for dunning
         // dynamic value from Supabase
         const failuresApi = await fetch(`/api/analytics/failures?companyId=${encodeURIComponent(companyId || '')}`).then(r => r.json()).catch(() => ({ reasons: [], recoveryByDay: [] }));
-        const failureReasons = failuresApi?.reasons || [];
-        const recoveryByDay = failuresApi?.recoveryByDay || [];
-        const dailyFailedRecovered = recoveryByDay.map((x: any) => ({ date: String(x.day), failed: 0, recovered: x.recovery }));
+        const reasonsArr = failuresApi?.reasons || [];
+        const recoveryArr = failuresApi?.recoveryByDay || [];
+        setFailureReasons(reasonsArr);
+        setRecoveryByDay(recoveryArr);
+        const dailyFailedRecovered = recoveryArr.map((x: any) => ({ date: String(x.day), failed: 0, recovered: x.recovery }));
 
         // dynamic value from Supabase (mock removed)
 
@@ -354,6 +358,8 @@ function useDashboardData(range: DataRange = '90d', refreshTrigger: number = 0, 
     planRevenue,
     channelRevenue,
     featureData,
+    failureReasons,
+    recoveryByDay,
   };
 }
 
@@ -385,6 +391,8 @@ export default function DashboardPage({ companyId }: { companyId?: string }) {
     planRevenue,
     channelRevenue,
     featureData,
+    failureReasons,
+    recoveryByDay,
   } = useDashboardData(range, refreshTrigger, companyId);
 
   // Auto-refresh metrics every 60 seconds
